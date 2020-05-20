@@ -1,0 +1,49 @@
+{
+    "_shards": {
+        "failed": 0,
+        "skipped": 0,
+        "successful": 5,
+        "total": 5
+    },
+    "cluster_name": "docker-cluster",
+    "cluster_uuid": "nTOaeziJTeaXPMReITwPiw",
+    "hits": {
+        "hits": [
+            {
+                "_id": "2",
+                "_index": "test",
+                "_score": 0.2876821,
+                "_source": {
+                    "title": "Test Two"
+                },
+                "_type": "_doc"
+            },
+            {
+                "_id": "1",
+                "_index": "test",
+                "_score": 0.2876821,
+                "_source": {
+                    "title": "Test One"
+                },
+                "_type": "_doc"
+            }
+        ],
+        "max_score": 0.2876821,
+        "total": 2
+    },
+    "name": "nKepCQV",
+    "tagline": "You Know, for Search",
+    "timed_out": false,
+    "took": 2,
+    "version": {
+        "build_date": "2018-09-26T13:34:09.098244Z",
+        "build_flavor": "default",
+        "build_hash": "04711c2",
+        "build_snapshot": false,
+        "build_type": "tar",
+        "lucene_version": "7.4.0",
+        "minimum_index_compatibility_version": "5.0.0",
+        "minimum_wire_compatibility_version": "5.6.0",
+        "number": "6.4.2"
+    }
+}
