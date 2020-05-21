@@ -1,143 +1,122 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
+	"context"
+	"fmt"
+	"net/http"
 
-	"github.com/olivere/elastic/v7"
-	"github.com/prometheus/common/model"
+	"github.com/TV4/graceful"
+	gorilla "github.com/gorilla/handlers"
+	"github.com/namsral/flag"
+	elastic "github.com/olivere/elastic/v7"
+	"github.com/shinhwagk/prometheus-es-adapter/pkg/elasticsearch"
+	"github.com/shinhwagk/prometheus-es-adapter/pkg/handlers"
+	"github.com/shinhwagk/prometheus-es-adapter/pkg/logger"
+	"go.uber.org/zap"
 )
 
-// // func merge1(ms ...map[string]interface{}) map[string]interface{} {
-// // 	O := map[string]interface{}{}
-// // 	for _, i := range ms {
-// // 		mergo.Merge(&O, i)
-// // 	}
-// // 	return O
-// // }
-
-// // package main
-
-// // import _ "github.com/imdario/mergo"
-
-// type BoolQuery struct {
-// 	Query
-// 	mustClauses        []Query
-// 	mustNotClauses     []Query
-// 	filterClauses      []Query
-// 	shouldClauses      []Query
-// 	boost              *float64
-// 	minimumShouldMatch string
-// 	adjustPureNegative *bool
-// 	queryName          string
-// }
-
-// func (q *BoolQuery) MustNot(queries ...Query) *BoolQuery {
-// 	q.mustNotClauses = append(q.mustNotClauses, queries...)
-// 	return q
-// }
-
-// func (q *BoolQuery) Filter(filters ...Query) *BoolQuery {
-// 	q.filterClauses = append(q.filterClauses, filters...)
-// 	return q
-// }
-
-// func (q *TermQuery) Source() string {
-// 	// {"term":{"name":"value"}}
-// 	// source := make(map[string]interface{})
-// 	// tq := make(map[string]interface{})
-// 	// source["term"] = tq
-
-// 	// if q.boost == nil && q.queryName == "" {
-// 	// 	tq[q.name] = q.value
-// 	// } else {
-// 	// 	subQ := make(map[string]interface{})
-// 	// 	subQ["value"] = q.value
-// 	// 	if q.boost != nil {
-// 	// 		subQ["boost"] = *q.boost
-// 	// 	}
-// 	// 	if q.queryName != "" {
-// 	// 		subQ["_name"] = q.queryName
-// 	// 	}
-// 	// 	tq[q.name] = subQ
-// 	// }
-// 	return "1"
-// }
-
-// type Query interface {
-// 	// Source returns the JSON-serializable query request.
-// 	// Source() (interface{}, error)
-// 	Source() string
-// }
-
-// type TermQuery struct {
-// 	name      string
-// 	value     interface{}
-// 	boost     *float64
-// 	queryName string
-// }
-// type RegexpQuery struct {
-// 	name                  string
-// 	regexp                string
-// 	flags                 string
-// 	boost                 *float64
-// 	rewrite               string
-// 	queryName             string
-// 	maxDeterminizedStates *int
-// }
-
-// func NewBoolQuery() *BoolQuery {
-// 	return &BoolQuery{
-// 		mustClauses:    make([]Query, 0),
-// 		mustNotClauses: make([]Query, 0),
-// 		filterClauses:  make([]Query, 0),
-// 	}
-// }
-
-// func NewTermQuery(name string, value interface{}) *TermQuery {
-// 	return &TermQuery{name: name, value: value}
-// }
-
-// func NewRegexpQuery(name string, regexp string) *RegexpQuery {
-// 	return &RegexpQuery{name: name, regexp: regexp}
-// }
+var (
+	// Build number populated during build
+	Build string
+	// Commit hash populated during build
+	Commit string
+)
 
 func main() {
-	log.Println(`started`)
-	// O := map[string]interface{}{}
+	var (
+		url           = flag.String("es_url", "http://localhost:9200", "Elasticsearch URL.")
+		user          = flag.String("es_user", "", "Elasticsearch User.")
+		pass          = flag.String("es_password", "", "Elasticsearch User Password.")
+		workers       = flag.Int("es_workers", 1, "Number of batch workers.")
+		batchMaxAge   = flag.Int("es_batch_max_age", 10, "Max period in seconds between bulk Elasticsearch insert operations")
+		batchMaxDocs  = flag.Int("es_batch_max_docs", 1000, "Max items for bulk Elasticsearch insert operation")
+		batchMaxSize  = flag.Int("es_batch_max_size", 4096, "Max size in bytes for bulk Elasticsearch insert operation")
+		indexAlias    = flag.String("es_alias", "prom-metrics", "Elasticsearch alias pointing to active write index")
+		indexDaily    = flag.Bool("es_index_daily", false, "Create daily indexes and disable index management service")
+		indexShards   = flag.Int("es_index_shards", 5, "Number of Elasticsearch shards to create per index")
+		indexReplicas = flag.Int("es_index_replicas", 1, "Number of Elasticsearch replicas to create per index")
+		indexMaxAge   = flag.String("es_index_max_age", "7d", "Max age of Elasticsearch index before rollover")
+		indexMaxDocs  = flag.Int64("es_index_max_docs", 1000000, "Max number of docs in Elasticsearch index before rollover")
+		indexMaxSize  = flag.String("es_index_max_size", "", "Max size of index before rollover eg 5gb")
+		searchMaxDocs = flag.Int("es_search_max_docs", 1000, "Max number of docs returned for Elasticsearch search operation")
+		sniffEnabled  = flag.Bool("es_sniff", false, "Enable Elasticsearch sniffing")
+		statsEnabled  = flag.Bool("stats", true, "Expose Prometheus metrics endpoint")
+		debug         = flag.Bool("debug", false, "Debug logging")
+	)
+	flag.Parse()
 
-	// A := map[string]interface{}{
-	// 	"a": map[string]interface{}{
-	// 		"a": "b",
-	// 		"c": 11,
-	// 	},
-	// }
-	// B := map[string]interface{}{
-	// 	"a": map[string]interface{}{
-	// 		"b": "b",
-	// 	},
-	// }
+	log := logger.NewLogger(*debug)
 
-	// X := merge1(A, B)
-	// fmt.Println(X)
+	log.Info(fmt.Sprintf("Starting commit: %+v, build: %+v", Commit, Build))
 
-	// query := NewBoolQuery()
-	// query = query.Filter(NewTermQuery("label.NAME", "A"))
-	// fmt.Println(len(query.filterClauses))
+	if *url == "" {
+		log.Fatal("missing url")
+	}
 
-}
+	ctx := context.TODO()
 
-type prometheusSample struct {
-	Labels    model.Metric `json:"label"`
-	Value     float64      `json:"value"`
-	Timestamp int64        `json:"timestamp"`
-}
+	client, err := elastic.NewClient(
+		elastic.SetURL(*url),
+		elastic.SetBasicAuth(*user, *pass),
+		elastic.SetSniff(*sniffEnabled),
+	)
+	if err != nil {
+		log.Fatal("Failed to create elastic client", zap.Error(err))
+	}
+	defer client.Stop()
 
-func abc(results *elastic.SearchHits) {
-	for _, r := range results.Hits {
-		var s prometheusSample
-		if err := json.Unmarshal([]byte(r.Source), &s); err != nil {
-			// svc.logger.Fatal("Failed to unmarshal sample", zap.Error(err))
+	err = elasticsearch.EnsureIndexTemplate(ctx, client, &elasticsearch.IndexTemplateConfig{
+		Alias:    *indexAlias,
+		Shards:   *indexShards,
+		Replicas: *indexReplicas,
+	})
+	if err != nil {
+		log.Fatal("Failed to create index template", zap.Error(err))
+	}
+
+	if !*indexDaily {
+		_, err = elasticsearch.NewIndexService(ctx, log, client, &elasticsearch.IndexConfig{
+			Alias:   *indexAlias,
+			MaxAge:  *indexMaxAge,
+			MaxDocs: *indexMaxDocs,
+			MaxSize: *indexMaxSize,
+		})
+		if err != nil {
+			log.Fatal("Failed to create indexer", zap.Error(err))
 		}
 	}
+
+	readCfg := &elasticsearch.ReadConfig{
+		Alias:   *indexAlias,
+		MaxDocs: *searchMaxDocs,
+	}
+	readSvc := elasticsearch.NewReadService(log, client, readCfg)
+
+	writeCfg := &elasticsearch.WriteConfig{
+		Alias:   *indexAlias,
+		Daily:   *indexDaily,
+		MaxAge:  *batchMaxAge,
+		MaxDocs: *batchMaxDocs,
+		MaxSize: *batchMaxSize,
+		Workers: *workers,
+		Stats:   *statsEnabled,
+	}
+	writeSvc, err := elasticsearch.NewWriteService(ctx, log, client, writeCfg)
+	if err != nil {
+		log.Fatal("Unable to create elasticsearch adapter:", zap.Error(err))
+	}
+	defer writeSvc.Close()
+
+	// Create an "admin" listener on 0.0.0.0:9000
+	go http.ListenAndServe(":9000", handlers.NewAdminRouter(client))
+
+	graceful.ListenAndServe(&http.Server{
+		Addr: ":8000",
+		Handler: gorilla.RecoveryHandler(gorilla.PrintRecoveryStack(true))(
+			gorilla.CompressHandler(
+				handlers.NewRouter(writeSvc, readSvc),
+			),
+		),
+	})
+	// TODO: graceful shutdown of bulk processor
 }
