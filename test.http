@@ -1,0 +1,85 @@
+GET http://10.65.103.78:9200/prom-metrics-1/_search HTTP/1.1
+content-type: application/json
+
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "match_phrase": {
+                        "label.__name__": {
+                            "query": "prometheus_tsdb_compaction_duration_seconds_bucket"
+                        }
+                    }
+                }
+            ],
+            "filter": [],
+            "should": [],
+            "must_not": []
+        }
+    }
+}
+
+### 
+GET http://10.65.103.78:9200/prom-metrics-1/_search?pretty=true HTTP/1.1
+content-type: application/json
+
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "term": {
+                        "label.handler": "/api/v1/query"
+                    }
+                },
+                {
+                    "term": {
+                        "label.__name__": "prometheus_http_response_size_bytes_bucket"
+                    }
+                }
+            ],
+            "filter": [
+                {
+                    "regexp": {
+                        "label.le": {
+                            "value": "10[0-1]"
+                        }
+                    }
+                },
+                {
+                    "range": {
+                        "timestamp": {
+                            "from": 1589961019631,
+                            "include_lower": true,
+                            "include_upper": true,
+                            "to": 1589961319631
+                        }
+                    }
+                }
+            ],
+            "must_not": [
+                {
+                    "regexp": {
+                        "label.instance": {
+                            "value": "f.*"
+                        }
+                    }
+                },
+                {
+                    "term": {
+                        "label.job": "asss"
+                    }
+                }
+            ]
+        }
+    },
+    "size": 1000,
+    "sort": [
+        {
+            "timestamp": {
+                "order": "asc"
+            }
+        }
+    ]
+}
