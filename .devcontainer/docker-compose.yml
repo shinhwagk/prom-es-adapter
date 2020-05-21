@@ -1,0 +1,47 @@
+version: "3"
+
+services:
+  app:
+    build:
+      context: .
+    volumes:
+      - ..:/workspace:cached
+      - vscode-extensions:/root/.vscode-server/extensions
+      - vscode-gotools:/tmp/gotools
+    command: sleep infinity
+    networks:
+      prometheus-es-adapter:
+        aliases:
+          - prometheus-es-adapter
+  elasticsearch:
+    image: elasticsearch:7.7.0
+    ports:
+      - 9200:9200
+    environment: 
+      - discovery.type=single-node
+    networks:
+      - prometheus-es-adapter
+  kibana:
+    image: kibana:7.7.0
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - 5601:5601
+    networks:
+      - prometheus-es-adapter
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - 9090:9090
+    networks:
+      - prometheus-es-adapter
+
+volumes:
+  vscode-extensions:
+    external: true
+  vscode-gotools:
+    external: true
+networks:
+  prometheus-es-adapter:
