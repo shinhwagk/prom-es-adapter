@@ -7,7 +7,9 @@
 	"settings": {
 		"terminal.integrated.shell.linux": "/bin/bash"
 	},
+	"postCreateCommand": "go get -v",
 	"extensions": [
-		"ms-vscode.go"
+		"ms-vscode.go",
+		"formulahendry.code-runner"
 	]
 }

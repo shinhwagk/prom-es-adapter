@@ -70,7 +70,6 @@ func (svc *ReadService) buildCommand(q *prompb.Query) *elastic.SearchService {
 
 	return svc.client.Search().
 		Index(svc.config.Alias+"-*").
-		Type(sampleType).
 		Query(query).
 		Size(svc.config.MaxDocs).
 		Sort("timestamp", true)

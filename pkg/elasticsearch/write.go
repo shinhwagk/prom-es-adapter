@@ -91,7 +91,6 @@ func (svc *WriteService) Write(req []*prompb.TimeSeries) {
 			r := elastic.
 				NewBulkIndexRequest().
 				Index(index).
-				Type(sampleType).
 				Doc(sample)
 			svc.processor.Add(r)
 		}
