@@ -83,3 +83,13 @@ content-type: application/json
         }
     ]
 }
+
+
+###
+GET http://10.65.103.78:9200/_search HTTP/1.1
+
+{
+ "query": {
+     
+ }
+}

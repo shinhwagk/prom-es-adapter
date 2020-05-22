@@ -10,6 +10,7 @@
 	"postCreateCommand": "go get -v",
 	"extensions": [
 		"ms-vscode.go",
-		"formulahendry.code-runner"
+		"formulahendry.code-runner",
+		"humao.rest-client"
 	]
 }

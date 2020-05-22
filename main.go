@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/TV4/graceful"
+	goelastic "github.com/elastic/go-elasticsearch/v7"
 	gorilla "github.com/gorilla/handlers"
 	"github.com/namsral/flag"
 	elastic "github.com/olivere/elastic/v7"
@@ -65,7 +66,20 @@ func main() {
 	}
 	defer client.Stop()
 
-	err = elasticsearch.EnsureIndexTemplate(ctx, client, &elasticsearch.IndexTemplateConfig{
+	// ##################### gk
+	cfg := goelastic.Config{
+		Addresses: []string{
+			"http://elasticsearch:9200",
+		},
+	}
+	esClient, err := goelastic.NewClient(cfg)
+	if err != nil {
+		log.Fatal("Error creating the client: %s", zap.Error(err))
+	}
+
+	// ##################### gk
+
+	err = elasticsearch.EnsureIndexTemplate(esClient, &elasticsearch.IndexTemplateConfig{
 		Alias:    *indexAlias,
 		Shards:   *indexShards,
 		Replicas: *indexReplicas,
@@ -75,7 +89,7 @@ func main() {
 	}
 
 	if !*indexDaily {
-		_, err = elasticsearch.NewIndexService(ctx, log, client, &elasticsearch.IndexConfig{
+		_, err = elasticsearch.NewIndexService(ctx, log, esClient, &elasticsearch.IndexConfig{
 			Alias:   *indexAlias,
 			MaxAge:  *indexMaxAge,
 			MaxDocs: *indexMaxDocs,
