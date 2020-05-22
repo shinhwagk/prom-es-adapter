@@ -4,7 +4,7 @@ go 1.14
 
 require (
 	github.com/TV4/graceful v0.3.4
-	github.com/elastic/go-elasticsearch/v7 v7.7.0 // indirect
+	github.com/elastic/go-elasticsearch/v7 v7.7.0
 	github.com/golang/protobuf v1.4.2
 	github.com/golang/snappy v0.0.1
 	github.com/gorilla/handlers v1.4.2

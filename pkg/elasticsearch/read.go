@@ -1,9 +1,10 @@
-ackage elasticsearch
+package elasticsearch
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 
 	goelastic "github.com/elastic/go-elasticsearch/v7"
@@ -40,7 +41,6 @@ func (svc *ReadService) Read(ctx context.Context, req []*prompb.Query) ([]*promp
 	results := make([]*prompb.QueryResult, 0, len(req))
 	for _, q := range req {
 		resp := svc.buildCommand(q)
-
 		ts, err := svc.createTimeseries(resp.Hits)
 		if err != nil {
 			return nil, err
@@ -48,6 +48,10 @@ func (svc *ReadService) Read(ctx context.Context, req []*prompb.Query) ([]*promp
 		results = append(results, &prompb.QueryResult{Timeseries: ts})
 	}
 	return results, nil
+}
+
+type EsQUERY struct {
+	query interface{}
 }
 
 func (svc *ReadService) buildCommand(q *prompb.Query) *elastic.SearchResult {
@@ -72,10 +76,12 @@ func (svc *ReadService) buildCommand(q *prompb.Query) *elastic.SearchResult {
 	if err != nil {
 		log.Fatalf("Error encoding query: %s", err)
 	}
+	esquery := EsQUERY{query: inf}
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(inf); err != nil {
+	if err := json.NewEncoder(&buf).Encode(esquery); err != nil {
 		log.Fatalf("Error encoding query: %s", err)
 	}
+	fmt.Println(inf, buf.String())
 	res, err := svc.client.Search(
 		svc.client.Search.WithContext(context.Background()),
 		svc.client.Search.WithIndex(svc.config.Alias+"-*"),
@@ -84,7 +90,7 @@ func (svc *ReadService) buildCommand(q *prompb.Query) *elastic.SearchResult {
 		svc.client.Search.WithPretty(),
 	)
 	if err != nil {
-		log.Fatalf("Error getting response: %s", err)
+		svc.logger.Fatal("Error getting response: %s", zap.Error(err))
 	}
 	defer res.Body.Close()
 
@@ -93,7 +99,6 @@ func (svc *ReadService) buildCommand(q *prompb.Query) *elastic.SearchResult {
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
 			log.Fatalf("Error parsing the response body: %s", err)
 		} else {
-			// Print the response status and error information.
 			log.Fatalf("[%s] %s: %s",
 				res.Status(),
 				e["error"].(map[string]interface{})["type"],
@@ -101,7 +106,6 @@ func (svc *ReadService) buildCommand(q *prompb.Query) *elastic.SearchResult {
 			)
 		}
 	}
-
 	var r elastic.SearchResult
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
 		log.Fatalf("Error parsing the response body: %s", err)
@@ -109,11 +113,7 @@ func (svc *ReadService) buildCommand(q *prompb.Query) *elastic.SearchResult {
 	return &r
 }
 
-type ESREST struct {
-}
-
 func (svc *ReadService) createTimeseries(results *elastic.SearchHits) ([]*prompb.TimeSeries, error) {
-
 	tsMap := make(map[string]*prompb.TimeSeries)
 	for _, r := range results.Hits {
 		var s prometheusSample

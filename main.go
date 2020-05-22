@@ -104,7 +104,7 @@ func main() {
 		Alias:   *indexAlias,
 		MaxDocs: *searchMaxDocs,
 	}
-	readSvc := elasticsearch.NewReadService(log, client, readCfg)
+	readSvc := elasticsearch.NewReadService(log, esClient, readCfg)
 
 	writeCfg := &elasticsearch.WriteConfig{
 		Alias:   *indexAlias,
