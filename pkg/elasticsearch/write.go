@@ -1,3 +1,4 @@
+package elasticsearch
 
 import (
 	"bytes"
@@ -6,12 +7,11 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"time"
+	"strings"
 
 	goelastic "github.com/elastic/go-elasticsearch/v7"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/elastic/go-elasticsearch/v7/esutil"
 	elastic "github.com/olivere/elastic/v7"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/prompb"
 	"go.uber.org/zap"
@@ -42,26 +42,13 @@ type WriteConfig struct {
 }
 
 // NewWriteService creates and returns a new elasticsearch WriteService
-func NewWriteService(ctx context.Context, logger *zap.Logger, client *elastic.Client, config *WriteConfig) (*WriteService, error) {
+func NewWriteService(ctx context.Context, logger *zap.Logger, client *goelastic.Client) (*WriteService, error) {
 	svc := &WriteService{
-		config: config,
-		logger: logger,
+		logger:   logger,
+		esClient: client,
 	}
-	// b, err := client.BulkProcessor().
-	// 	Workers(config.Workers).                                   // # of workers
-	// 	BulkActions(config.MaxDocs).                               // # of queued requests before committed
-	// 	BulkSize(config.MaxSize).                                  // # of bytes in requests before committed
-	// 	FlushInterval(time.Duration(config.MaxAge) * time.Second). // autocommit every # seconds
-	// 	Stats(config.Stats).                                       // gather statistics
-	// 	After(svc.after).                                          // call "after" after every commit
-	// 	Do(ctx)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// svc.processor = b
-	if config.Stats {
-		prometheus.MustRegister(svc)
-	}
+
+	// prometheus.MustRegister(svc)
 	return svc, nil
 }
 
@@ -73,7 +60,35 @@ func (svc *WriteService) Close() error {
 
 // Write will enqueue Prometheus sample data to be batch written to Elasticsearch
 func (svc *WriteService) Write(req []*prompb.TimeSeries) {
-	index := svc.config.Alias
+	test(svc, req)
+	test(svc, req)
+	test(svc, req)
+	test(svc, req)
+	test(svc, req)
+}
+
+func (svc *WriteService) after(id int64, requests []elastic.BulkableRequest, response *elastic.BulkResponse, err error) {
+	if err != nil {
+		svc.logger.Error(err.Error())
+	} else {
+		for _, i := range response.Items {
+			if i["index"].Status != 201 {
+				svc.logger.Error(fmt.Sprintf("%+v", i["index"].Error))
+			}
+		}
+	}
+}
+
+func test(svc *WriteService, req []*prompb.TimeSeries) {
+	index := "prom-metrics-1"
+	indexer, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
+		Client:     svc.esClient,
+		Index:      index,
+		NumWorkers: 1,
+	})
+	if err != nil {
+		log.Fatalf("Error creating the indexer: %s", err)
+	}
 	for _, ts := range req {
 		metric := make(model.Metric, len(ts.Labels))
 		for _, l := range ts.Labels {
@@ -90,50 +105,46 @@ func (svc *WriteService) Write(req []*prompb.TimeSeries) {
 				v,
 				s.Timestamp,
 			}
-			if svc.config.Daily {
-				index = svc.config.Alias + "-" + time.Unix(s.Timestamp/1000, 0).Format("2006-01-02")
-			}
-
-			// defer wg.Done()
 			var buf bytes.Buffer
 			if err := json.NewEncoder(&buf).Encode(sample); err != nil {
 				log.Fatalf("Error encoding query: %s", err)
 			}
-			req := esapi.IndexRequest{
-				Index:   index,
-				Body:    &buf,
-				Refresh: "true",
-			}
-			res, err := req.Do(context.Background(), svc.esClient)
+			err := indexer.Add(context.Background(),
+				esutil.BulkIndexerItem{
+					Action: "index",
+					Body:   strings.NewReader(buf.String()),
+					OnSuccess: func(
+						ctx context.Context,
+						item esutil.BulkIndexerItem,
+						res esutil.BulkIndexerResponseItem,
+					) {
+						// fmt.Printf("[%d] %s test/%s", res.Status, res.Result, item.DocumentID)
+					},
+					OnFailure: func(
+						ctx context.Context,
+						item esutil.BulkIndexerItem,
+						res esutil.BulkIndexerResponseItem, err error,
+					) {
+						if err != nil {
+							log.Printf("ERROR: %s", err)
+						} else {
+							log.Printf("ERROR: %s: %s", res.Error.Type, res.Error.Reason)
+						}
+					},
+				},
+			)
 			if err != nil {
-				log.Fatalf("Error getting response: %s", err)
-			}
-			defer res.Body.Close()
-
-			if res.IsError() {
-				log.Printf("[%s] Error indexing document ", res.Status())
-			} else {
-				var r map[string]interface{}
-				if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-					log.Printf("Error parsing the response body: %s", err)
-				} else {
-					log.Printf("[%s] %s; version=%d", res.Status(), r["result"], int(r["_version"].(float64)))
-				}
+				log.Fatalf("Unexpected error: %s", err)
 			}
 		}
 	}
-}
-
-// after is invoked by bulk processor after every commit.
-// The err variable indicates success or failure.
-func (svc *WriteService) after(id int64, requests []elastic.BulkableRequest, response *elastic.BulkResponse, err error) {
-	if err != nil {
-		svc.logger.Error(err.Error())
+	if err := indexer.Close(context.Background()); err != nil {
+		log.Fatalf("Unexpected error: %s", err)
+	}
+	stats := indexer.Stats()
+	if stats.NumFailed > 0 {
+		log.Fatalf("Indexed [%d] documents with [%d] errors", stats.NumFlushed, stats.NumFailed)
 	} else {
-		for _, i := range response.Items {
-			if i["index"].Status != 201 {
-				svc.logger.Error(fmt.Sprintf("%+v", i["index"].Error))
-			}
-		}
+		log.Printf("Successfully indexed [%d] documents", stats.NumFlushed)
 	}
 }

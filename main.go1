@@ -1,0 +1,99 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	goelastic "github.com/elastic/go-elasticsearch/v7"
+	"github.com/elastic/go-elasticsearch/v7/esutil"
+)
+
+func main() {
+	fmt.Println(111)
+	cfg := goelastic.Config{
+		Addresses: []string{
+			"http://elasticsearch:9200",
+		},
+		RetryOnStatus: []int{502, 503, 504, 429},
+		RetryBackoff:  func(i int) time.Duration { return time.Duration(i) * 100 * time.Millisecond },
+		MaxRetries:    5,
+	}
+	esClient, err := goelastic.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("Error creating the client: %s", err)
+	}
+	indexer, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
+		Client:     esClient,
+		Index:      "test",
+		NumWorkers: 4,
+		FlushBytes: 5e+6,
+	})
+	if err != nil {
+		log.Fatalf("Error creating the indexer: %s", err)
+	}
+	err = indexer.Add(
+		context.Background(),
+		esutil.BulkIndexerItem{
+			Action: "index",
+			Body:   strings.NewReader(`{"title":"Test"}`),
+			OnSuccess: func(
+				ctx context.Context,
+				item esutil.BulkIndexerItem,
+				res esutil.BulkIndexerResponseItem,
+			) {
+				fmt.Printf("[%d] %s test/%s", res.Status, res.Result, item.DocumentID)
+			},
+			OnFailure: func(
+				ctx context.Context,
+				item esutil.BulkIndexerItem,
+				res esutil.BulkIndexerResponseItem, err error,
+			) {
+				if err != nil {
+					log.Printf("ERROR: %s", err)
+				} else {
+					log.Printf("ERROR: %s: %s", res.Error.Type, res.Error.Reason)
+				}
+			},
+		},
+	)
+	err = indexer.Add(
+		context.Background(),
+		esutil.BulkIndexerItem{
+			Action: "index",
+			Body:   strings.NewReader(`{"title":"Test1"}`),
+			OnSuccess: func(
+				ctx context.Context,
+				item esutil.BulkIndexerItem,
+				res esutil.BulkIndexerResponseItem,
+			) {
+				fmt.Printf("[%d] %s test/%s", res.Status, res.Result, item.DocumentID)
+			},
+			OnFailure: func(
+				ctx context.Context,
+				item esutil.BulkIndexerItem,
+				res esutil.BulkIndexerResponseItem, err error,
+			) {
+				if err != nil {
+					log.Printf("ERROR: %s", err)
+				} else {
+					log.Printf("ERROR: %s: %s", res.Error.Type, res.Error.Reason)
+				}
+			},
+		},
+	)
+	if err != nil {
+		log.Fatalf("Unexpected error: %s", err)
+	}
+	if err := indexer.Close(context.Background()); err != nil {
+		log.Fatalf("Unexpected error: %s", err)
+	}
+	stats := indexer.Stats()
+	if stats.NumFailed > 0 {
+		log.Fatalf("Indexed [%d] documents with [%d] errors", stats.NumFlushed, stats.NumFailed)
+	} else {
+		log.Printf("Successfully indexed [%d] documents", stats.NumFlushed)
+	}
+}

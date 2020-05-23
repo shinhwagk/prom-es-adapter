@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/TV4/graceful"
 	goelastic "github.com/elastic/go-elasticsearch/v7"
@@ -25,13 +26,13 @@ var (
 
 func main() {
 	var (
-		url           = flag.String("es_url", "http://elasticsearch:9200", "Elasticsearch URL.")
-		user          = flag.String("es_user", "", "Elasticsearch User.")
-		pass          = flag.String("es_password", "", "Elasticsearch User Password.")
-		workers       = flag.Int("es_workers", 1, "Number of batch workers.")
-		batchMaxAge   = flag.Int("es_batch_max_age", 10, "Max period in seconds between bulk Elasticsearch insert operations")
-		batchMaxDocs  = flag.Int("es_batch_max_docs", 1000, "Max items for bulk Elasticsearch insert operation")
-		batchMaxSize  = flag.Int("es_batch_max_size", 4096, "Max size in bytes for bulk Elasticsearch insert operation")
+		url  = flag.String("es_url", "http://elasticsearch:9200", "Elasticsearch URL.")
+		user = flag.String("es_user", "", "Elasticsearch User.")
+		pass = flag.String("es_password", "", "Elasticsearch User Password.")
+		// workers       = flag.Int("es_workers", 1, "Number of batch workers.")
+		// batchMaxAge   = flag.Int("es_batch_max_age", 10, "Max period in seconds between bulk Elasticsearch insert operations")
+		// batchMaxDocs  = flag.Int("es_batch_max_docs", 1000, "Max items for bulk Elasticsearch insert operation")
+		// batchMaxSize  = flag.Int("es_batch_max_size", 4096, "Max size in bytes for bulk Elasticsearch insert operation")
 		indexAlias    = flag.String("es_alias", "prom-metrics", "Elasticsearch alias pointing to active write index")
 		indexDaily    = flag.Bool("es_index_daily", false, "Create daily indexes and disable index management service")
 		indexShards   = flag.Int("es_index_shards", 5, "Number of Elasticsearch shards to create per index")
@@ -41,8 +42,8 @@ func main() {
 		indexMaxSize  = flag.String("es_index_max_size", "", "Max size of index before rollover eg 5gb")
 		searchMaxDocs = flag.Int("es_search_max_docs", 1000, "Max number of docs returned for Elasticsearch search operation")
 		sniffEnabled  = flag.Bool("es_sniff", false, "Enable Elasticsearch sniffing")
-		statsEnabled  = flag.Bool("stats", true, "Expose Prometheus metrics endpoint")
-		debug         = flag.Bool("debug", false, "Debug logging")
+		// statsEnabled  = flag.Bool("stats", true, "Expose Prometheus metrics endpoint")
+		debug = flag.Bool("debug", false, "Debug logging")
 	)
 	flag.Parse()
 
@@ -71,6 +72,9 @@ func main() {
 		Addresses: []string{
 			"http://elasticsearch:9200",
 		},
+		RetryOnStatus: []int{502, 503, 504, 429},
+		RetryBackoff:  func(i int) time.Duration { return time.Duration(i) * 100 * time.Millisecond },
+		MaxRetries:    5,
 	}
 	esClient, err := goelastic.NewClient(cfg)
 	if err != nil {
@@ -105,17 +109,7 @@ func main() {
 		MaxDocs: *searchMaxDocs,
 	}
 	readSvc := elasticsearch.NewReadService(log, esClient, readCfg)
-
-	writeCfg := &elasticsearch.WriteConfig{
-		Alias:   *indexAlias,
-		Daily:   *indexDaily,
-		MaxAge:  *batchMaxAge,
-		MaxDocs: *batchMaxDocs,
-		MaxSize: *batchMaxSize,
-		Workers: *workers,
-		Stats:   *statsEnabled,
-	}
-	writeSvc, err := elasticsearch.NewWriteService(ctx, log, client, writeCfg)
+	writeSvc, err := elasticsearch.NewWriteService(ctx, log, esClient)
 	if err != nil {
 		log.Fatal("Unable to create elasticsearch adapter:", zap.Error(err))
 	}
