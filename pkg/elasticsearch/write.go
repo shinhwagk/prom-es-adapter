@@ -1,11 +1,15 @@
-package elasticsearch
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"time"
 
+	goelastic "github.com/elastic/go-elasticsearch/v7"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 	elastic "github.com/olivere/elastic/v7"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
@@ -21,9 +25,9 @@ type prometheusSample struct {
 
 // WriteService will proxy Prometheus write requests to Elasticsearch
 type WriteService struct {
-	config    *WriteConfig
-	logger    *zap.Logger
-	processor *elastic.BulkProcessor
+	config   *WriteConfig
+	logger   *zap.Logger
+	esClient *goelastic.Client
 }
 
 // WriteConfig is used to configure WriteService
@@ -43,18 +47,18 @@ func NewWriteService(ctx context.Context, logger *zap.Logger, client *elastic.Cl
 		config: config,
 		logger: logger,
 	}
-	b, err := client.BulkProcessor().
-		Workers(config.Workers).                                   // # of workers
-		BulkActions(config.MaxDocs).                               // # of queued requests before committed
-		BulkSize(config.MaxSize).                                  // # of bytes in requests before committed
-		FlushInterval(time.Duration(config.MaxAge) * time.Second). // autocommit every # seconds
-		Stats(config.Stats).                                       // gather statistics
-		After(svc.after).                                          // call "after" after every commit
-		Do(ctx)
-	if err != nil {
-		return nil, err
-	}
-	svc.processor = b
+	// b, err := client.BulkProcessor().
+	// 	Workers(config.Workers).                                   // # of workers
+	// 	BulkActions(config.MaxDocs).                               // # of queued requests before committed
+	// 	BulkSize(config.MaxSize).                                  // # of bytes in requests before committed
+	// 	FlushInterval(time.Duration(config.MaxAge) * time.Second). // autocommit every # seconds
+	// 	Stats(config.Stats).                                       // gather statistics
+	// 	After(svc.after).                                          // call "after" after every commit
+	// 	Do(ctx)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// svc.processor = b
 	if config.Stats {
 		prometheus.MustRegister(svc)
 	}
@@ -63,7 +67,8 @@ func NewWriteService(ctx context.Context, logger *zap.Logger, client *elastic.Cl
 
 // Close will close the underlying elasticsearch BulkProcessor
 func (svc *WriteService) Close() error {
-	return svc.processor.Close()
+	// return svc.processor.Close()
+	return nil
 }
 
 // Write will enqueue Prometheus sample data to be batch written to Elasticsearch
@@ -88,11 +93,33 @@ func (svc *WriteService) Write(req []*prompb.TimeSeries) {
 			if svc.config.Daily {
 				index = svc.config.Alias + "-" + time.Unix(s.Timestamp/1000, 0).Format("2006-01-02")
 			}
-			r := elastic.
-				NewBulkIndexRequest().
-				Index(index).
-				Doc(sample)
-			svc.processor.Add(r)
+
+			// defer wg.Done()
+			var buf bytes.Buffer
+			if err := json.NewEncoder(&buf).Encode(sample); err != nil {
+				log.Fatalf("Error encoding query: %s", err)
+			}
+			req := esapi.IndexRequest{
+				Index:   index,
+				Body:    &buf,
+				Refresh: "true",
+			}
+			res, err := req.Do(context.Background(), svc.esClient)
+			if err != nil {
+				log.Fatalf("Error getting response: %s", err)
+			}
+			defer res.Body.Close()
+
+			if res.IsError() {
+				log.Printf("[%s] Error indexing document ", res.Status())
+			} else {
+				var r map[string]interface{}
+				if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+					log.Printf("Error parsing the response body: %s", err)
+				} else {
+					log.Printf("[%s] %s; version=%d", res.Status(), r["result"], int(r["_version"].(float64)))
+				}
+			}
 		}
 	}
 }

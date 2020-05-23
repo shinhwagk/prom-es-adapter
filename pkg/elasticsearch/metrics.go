@@ -1,9 +1,6 @@
 package elasticsearch
 
 import (
-	"strconv"
-	"time"
-
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -92,23 +89,23 @@ func (svc *WriteService) Describe(ch chan<- *prometheus.Desc) {
 // Collect fetches the statistics from the elasticsearch bulk processor, and
 // delivers them as Prometheus metrics. It implements prometheus.Collector.
 func (svc *WriteService) Collect(ch chan<- prometheus.Metric) {
-	stats := svc.processor.Stats()
+	// stats := svc.processor.Stats()
 
-	var queued int64
-	var duration time.Duration
+	// var queued int64
+	// var duration time.Duration
 
-	ch <- prometheus.MustNewConstMetric(flushedDesc, prometheus.CounterValue, float64(stats.Flushed))
-	ch <- prometheus.MustNewConstMetric(committedDesc, prometheus.CounterValue, float64(stats.Committed))
-	ch <- prometheus.MustNewConstMetric(indexedDesc, prometheus.CounterValue, float64(stats.Indexed))
-	ch <- prometheus.MustNewConstMetric(createdDesc, prometheus.CounterValue, float64(stats.Created))
-	ch <- prometheus.MustNewConstMetric(updatedDesc, prometheus.CounterValue, float64(stats.Updated))
-	ch <- prometheus.MustNewConstMetric(deletedDesc, prometheus.CounterValue, float64(stats.Deleted))
-	ch <- prometheus.MustNewConstMetric(succeededDesc, prometheus.CounterValue, float64(stats.Succeeded))
-	ch <- prometheus.MustNewConstMetric(failedDesc, prometheus.CounterValue, float64(stats.Failed))
-	for i, w := range stats.Workers {
-		queued += w.Queued
-		duration += w.LastDuration
-		ch <- prometheus.MustNewConstMetric(queuedDesc, prometheus.GaugeValue, float64(queued), strconv.Itoa(i))
-		ch <- prometheus.MustNewConstMetric(durationDesc, prometheus.GaugeValue, float64(duration), strconv.Itoa(i))
-	}
+	// ch <- prometheus.MustNewConstMetric(flushedDesc, prometheus.CounterValue, float64(stats.Flushed))
+	// ch <- prometheus.MustNewConstMetric(committedDesc, prometheus.CounterValue, float64(stats.Committed))
+	// ch <- prometheus.MustNewConstMetric(indexedDesc, prometheus.CounterValue, float64(stats.Indexed))
+	// ch <- prometheus.MustNewConstMetric(createdDesc, prometheus.CounterValue, float64(stats.Created))
+	// ch <- prometheus.MustNewConstMetric(updatedDesc, prometheus.CounterValue, float64(stats.Updated))
+	// ch <- prometheus.MustNewConstMetric(deletedDesc, prometheus.CounterValue, float64(stats.Deleted))
+	// ch <- prometheus.MustNewConstMetric(succeededDesc, prometheus.CounterValue, float64(stats.Succeeded))
+	// ch <- prometheus.MustNewConstMetric(failedDesc, prometheus.CounterValue, float64(stats.Failed))
+	// for i, w := range stats.Workers {
+	// 	queued += w.Queued
+	// 	duration += w.LastDuration
+	// 	ch <- prometheus.MustNewConstMetric(queuedDesc, prometheus.GaugeValue, float64(queued), strconv.Itoa(i))
+	// 	ch <- prometheus.MustNewConstMetric(durationDesc, prometheus.GaugeValue, float64(duration), strconv.Itoa(i))
+	// }
 }
